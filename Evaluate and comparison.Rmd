@@ -1,0 +1,149 @@
+---
+title: "SIR_pred"
+output: html_document
+date: "2024-04-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+aggregate_SIR <- function(tI, tR) {
+  # Create a sequence of time steps from the earliest infection to the latest recovery
+  time_seq <- seq(min(tI, na.rm = TRUE), max(tR, na.rm = TRUE), by = 1)
+  
+  # Initialize an empty data frame to store the aggregated data
+  aggregated_data <- data.frame(time = time_seq, S = NA, I = NA, R = NA)
+  
+  # For each time step, calculate the S, I, R values
+  for (t in time_seq) {
+    # Susceptible: have not been infected by time t
+    aggregated_data[aggregated_data$time == t, "S"] <- sum(tI > t, na.rm = TRUE)
+    # Infected: have been infected by time t but not recovered
+    aggregated_data[aggregated_data$time == t, "I"] <- sum(tI <= t & tR > t, na.rm = TRUE)
+    # Recovered: have recovered by time t
+    aggregated_data[aggregated_data$time == t, "R"] <- sum(tR <= t, na.rm = TRUE)
+  }
+  
+  return(aggregated_data)
+}
+# Assuming 'hagelloch_raw' is your dataset with columns 'tI' for infection time and 'tR' for recovery time
+pred_PRO_ERU$pred_tI <- as.integer(round(pred_PRO_ERU$pred_tI))
+pred_PRO_ERU$pred_tR <- as.integer(round(pred_PRO_ERU$pred_tR))
+aggregate_hag_pred <- aggregate_SIR(pred_PRO_ERU$pred_tI, pred_PRO_ERU$pred_tR)
+
+aggregate_hag_pred%>% head %>%
+  kable()  %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+```{r}
+#aggregate orginal data as observed
+aggregate_hag <- aggregate_SIR(hagelloch_raw$tI, hagelloch_raw$tR)
+
+```
+
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+
+# Define a function to compute the Sum of Squared Errors (SSE) between observed data and SIR model predictions
+SSE_sir <- function(parms, observed_data){
+
+  ## Estimate model
+  inits <- as.numeric(observed_data[1, c("S", "I", "R")])
+
+  times <- seq(min(observed_data$time),
+               max(observed_data$time), by = .1)
+  
+  # Simulate the SIR model using the 'ode' function from the deSolve package
+  sir <- as.data.frame(ode(y = inits, times = times, func = sirmod,
+           parms = parms))
+  colnames(sir) <- c("time", "S_hat", "I_hat", "R_hat")
+
+  sir_sub <- sir %>% filter(sir$time %% 1 == 0)
+  SSE <- sum((sir_sub[,-1] - observed_data[, -1])^2)
+  return(SSE)
+
+}
+# Use the optim function to find the best fitting parameters minimizing the SSE
+init_par <- c("beta" = .75, "gamma" = 1/8)
+best_params <- optim(init_par, fn = SSE_sir,
+                     observed_data = aggregate_hag_pred)
+
+inits <- as.numeric(aggregate_hag_pred[1, c("S", "I", "R")])
+times <- seq(min(aggregate_hag_pred$time),
+               max(aggregate_hag_pred$time), by = .1)
+# Simulate the SIR model with the optimized parameters
+sir <- as.data.frame(ode(y = inits, times = times, func = sirmod,
+           parms = best_params$par))
+colnames(sir) <- c("time", "S", "I", "R")
+
+# Convert the simulated data to a tidy format
+tidy_ests <- sir %>%
+  mutate(type = "est") %>%
+  pivot_longer(-c(time, type), names_to = "state")
+
+# Convert the observed data to a tidy format
+tidy_data <- aggregate_hag %>%
+  mutate(type = "obs") %>%
+   pivot_longer(-c(time, type), names_to = "state")
+
+# Combine the estimated and observed data
+combined_df <- bind_rows(tidy_ests, tidy_data)
+
+ggplot() +
+  geom_line(data = combined_df %>% filter(type == "est"),
+             aes( x= time, y = value, group = state,
+                  col = state), linetype = "dashed") +
+  geom_point(data = combined_df %>% filter(type == "obs"),
+             aes( x= time, y = value, group = state), size = .2) +
+  facet_wrap(~state, ncol = 1)
+```
+
+
+
+```{r}
+#processing three kinds of data to comparison plot
+tidy_hag <- aggregate_hag %>%
+  pivot_longer(cols = -time, names_to = "state", values_to = "value") %>%
+  mutate(type = "Observed")
+
+tidy_hag_pred <- aggregate_hag_pred %>%
+  pivot_longer(cols = -time, names_to = "state", values_to = "value") %>%
+  mutate(type = "Predicted")
+
+tidy_sir <- sir %>%
+  pivot_longer(cols = -time, names_to = "state", values_to = "value") %>%
+  mutate(type = "SIR Model")
+
+```
+
+```{r}
+
+ggplot() +
+  geom_line(data = tidy_sir, 
+            aes(x = time, y = value, color = type, linetype = type), size = 1) +
+  geom_point(data = tidy_hag, 
+             aes(x = time, y = value, color = type), size = 2, alpha = 0.6) +
+  geom_point(data = tidy_hag_pred, 
+             aes(x = time, y = value, color = type), size = 2, alpha = 0.6, shape = 17) +
+  scale_color_manual(values = c("Observed" = "blue", "Predicted" = "green", "SIR Model" = "red")) +
+  scale_linetype_manual(values = c("SIR Model" = "dashed", "Observed" = "solid", "Predicted" = "solid")) +
+  labs(color = "Data Type", shape = "Data Type", linetype = "Data Type") +
+  facet_wrap(~state, scales = 'free_y', ncol = 1) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+
+
+

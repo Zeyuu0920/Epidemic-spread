@@ -1,0 +1,98 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-04-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(dtplyr)
+library(EpiCompare)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(RColorBrewer)
+```
+
+```{r}
+hagelloch_raw %>% select(PN, NAME, AGE, SEX, HN, PRO, ERU, IFTO) %>%
+  head(10) %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+```{r}
+hagelloch_raw %>% arrange(HN, NAME) %>%
+  mutate(new_id = paste(HN, NAME, PN, sep = "-")) %>%
+  group_by(HN) %>%
+  mutate(new_id = forcats::fct_reorder(new_id, -tI)) %>%
+ggplot2::ggplot(aes(y = new_id, col = factor(HN))) +
+  scale_colour_manual(values=rep(brewer.pal(5,"Set1"),
+                                times= ceiling(length(unique(hagelloch_raw$HN)) / 5)),
+                      guide = FALSE) +
+  geom_errorbarh(aes(xmax = tR, xmin = tI), size  = 1) + theme_bw() +
+  labs(x = "Date",
+       y = "Child ID",
+       title = "Infection time of children",
+       subtitle = "Colored by household ID (with recycled colors)") +
+  theme(axis.text.y = element_text(size = 4))
+```
+```{r}
+hagelloch_raw %>% arrange(CL) %>%
+  mutate(new_id = paste(CL, PN, sep = "-")) %>%
+  group_by(CL) %>%
+  mutate(new_id = forcats::fct_reorder(new_id, -tI)) %>%
+ggplot2::ggplot(aes(y = new_id, col = CL))+
+  geom_errorbarh(aes(xmax = tR, xmin = tI), size  = 1) + theme_bw() +
+  labs(x = "Date",
+       y = "Child ID",
+       title = "Infection time of children",
+       color = "School Grade") +
+  viridis::scale_color_viridis(discrete = TRUE, end = .8) +
+  theme(axis.text.y = element_text(size = 4))
+```
+
+`
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Determine the overall minimum and maximum days across all individuals
+min_day <- min(hagelloch_raw$tI, na.rm = TRUE)
+max_day <- max(hagelloch_raw$tR, na.rm = TRUE)
+
+# Create a new data frame expanding each individual to each day they were infected
+expanded_data <- hagelloch_raw %>%
+  filter(AGE < 18) %>%  # Assuming you want to count children
+  rowwise() %>%
+  mutate(day = list(seq(tI, tR))) %>%
+  unnest(cols = c(day)) %>%
+  mutate(State = "Infected")
+
+# Aggregate data by day and count the number of children infected
+aggregate_hag <- expanded_data %>%
+  group_by(day) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Plot the results
+ggplot(aggregate_hag, aes(x = day, y = count)) +
+  geom_line() +
+  labs(title = "Number of Children Infected Over Time",
+       x = "Day",
+       y = "Count of Children") +
+  theme_minimal()
+
+
+```
+
+
+
+
